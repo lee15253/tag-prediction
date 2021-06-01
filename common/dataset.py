@@ -1,9 +1,10 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-import random
+import random, copy
 from torch.utils.data import Dataset
 from collections import defaultdict
+import ipdb
 
 
 def remove_answerers_from_question(question_info_dict, answerer_info_dict, max_answerers, removal_criterion):
@@ -12,25 +13,34 @@ def remove_answerers_from_question(question_info_dict, answerer_info_dict, max_a
         remove the answerers who have the (small or large) number of replies.
     """
     new_question_info_dict = defaultdict(list)
+    new_answerer_info_dict = copy.deepcopy(answerer_info_dict) 
+
     for question_idx, answerers in question_info_dict.items():
         if len(answerers) > max_answerers:
             questions_per_answerers = []
             for answerer_idx in answerers:
-                answerer_info = answerer_info_dict[answerer_idx]
+                answerer_info = answerer_info_dict[answerer_idx]  # 답변자의 질문 개수 비교시엔 원래 answerer_info_dict 사용
                 questions_per_answerers.append(len(answerer_info))
             if removal_criterion == 'max':
                 max_questions_idx = np.array(questions_per_answerers).argsort()[-max_answerers:]
-                new_answerers = [answerers[i] for i in max_questions_idx]
+                new_answerers = [answerers[i] for i in max_questions_idx]                               
             elif removal_criterion == 'min':
                 min_questions_idx = np.array(questions_per_answerers).argsort()[:max_answerers]
                 new_answerers = [answerers[i] for i in min_questions_idx]
             else:
                 raise NotImplementedError
+
             new_question_info_dict[question_idx] = new_answerers
+
+            # BK: answerer_info_dict[eliminated_answerers].remove(this question)
+            eliminated_answerers = np.setdiff1d(answerers, new_answerers) 
+            for e in eliminated_answerers:
+                new_answerer_info_dict[e].remove(question_idx)
+            
         else:
             new_question_info_dict[question_idx] = answerers
 
-    return new_question_info_dict
+    return new_question_info_dict, new_answerer_info_dict
 
 
 def remove_questions_from_answerer(answerer_info_dict, question_info_dict, max_questions, removal_criterion):
@@ -39,11 +49,14 @@ def remove_questions_from_answerer(answerer_info_dict, question_info_dict, max_q
         remove the questions which have the (small or large) number of answerers.
     """
     new_answerer_info_dict = defaultdict(list)
+    new_question_info_dict = copy.deepcopy(question_info_dict)  
+
+
     for answerer_idx, questions in answerer_info_dict.items():
         if len(questions) > max_questions:
             answerers_per_questions = []
             for question_idx in questions:
-                question_info = question_info_dict[question_idx]
+                question_info = question_info_dict[question_idx]  # 질문의 답변 개수 비교시엔 원래 answerer_info_dict 사용
                 answerers_per_questions.append(len(question_info))
             if removal_criterion == 'max':
                 max_answerers_idx = np.array(answerers_per_questions).argsort()[-max_questions:]
@@ -54,10 +67,17 @@ def remove_questions_from_answerer(answerer_info_dict, question_info_dict, max_q
             else:
                 raise NotImplementedError
             new_answerer_info_dict[answerer_idx] = new_questions
+
+            # BK: answerer_info_dict[eliminated_answerers].remove(this question)
+            eliminated_questions = np.setdiff1d(questions, new_questions) 
+            a = [new_question_info_dict[i] for i in eliminated_questions]
+            for q in eliminated_questions:
+                new_question_info_dict[q].remove(answerer_idx)
+
         else:
             new_answerer_info_dict[answerer_idx] = questions
 
-    return new_answerer_info_dict
+    return new_question_info_dict, new_answerer_info_dict
 
 
 class TagPredictionTrainDataset(Dataset):
